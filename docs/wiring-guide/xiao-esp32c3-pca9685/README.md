@@ -28,18 +28,38 @@ signals and a trickle of power for the chip, never servo current.
 Keep the I2C wires short (10–15 cm is fine) and twist SDA/SCL loosely
 with a ground wire if you get flaky behaviour.
 
-## 2. The OLED shares the same I2C bus
+**This build uses the PCA9685 board as the wiring hub** (decided
+2026-11-14): every ground in the system terminates on the PCA9685 board
+itself, so no two wires ever need to be bridged or spliced together.
+The C3 connects to the header at one end of the board, the OLED plugs
+into the matching header at the *other* end (most breakouts duplicate
+GND/VCC/SCL/SDA there for chaining), and the servo supply ground lands
+on the V+ screw terminal. Each wire keeps its own pin.
 
-The SSD1306 OLED face display wires to the *same* D4/D5 pins:
+## 2. The OLED plugs into the far end of the PCA9685
 
-| OLED pin | Connect to |
+The SSD1306 OLED face display shares the I2C bus, but it does **not**
+wire back to the C3. Plug it into the duplicated header at the opposite
+end of the PCA9685 board from the C3:
+
+| OLED pin | PCA9685 far-end pin |
 |---|---|
-| SDA | C3 D4 (GPIO6) — same wire as PCA9685 SDA |
-| SCL | C3 D5 (GPIO7) — same wire as PCA9685 SCL |
-| VCC | C3 3.3V |
-| GND | C3 GND |
+| SDA | SDA |
+| SCL | SCL |
+| VCC | VCC |
+| GND | GND |
 
-No clash: the OLED is at I2C address **0x3C**, the PCA9685 at **0x40**.
+> [!IMPORTANT]
+> Check the silkscreen labels at the far end before plugging in — the
+> pin order can be mirrored compared to the C3 end. Match labels, not
+> positions (VCC and GND swapped would kill the display).
+>
+> If your breakout has no far-end header, the fallbacks, in order:
+> the GND pin of any spare servo slot (8–15) for the OLED ground plus
+> solderless joins for SDA/SCL/VCC, or a mini breadboard as the hub.
+
+No address clash: the OLED is at I2C address **0x3C**, the PCA9685 at
+**0x40**.
 
 ## 3. Servo power — the important part
 
@@ -56,8 +76,11 @@ No clash: the OLED is at I2C address **0x3C**, the PCA9685 at **0x40**.
 - Fit a **470–1000 µF electrolytic capacitor** across V+ and GND at the
   terminal (many breakouts include one) to soak up servo start spikes.
 - **Grounds must all meet**: BEC output ground, PCA9685 GND and C3 GND
-  are one common ground. Without that, the PWM signals have no reference
-  and the legs will twitch or ignore you.
+  are one common ground. In this build they meet *on the PCA9685 board*
+  (see §1–2), which is the single star point — the BEC's ground wire
+  terminates on the V+ terminal's GND screw, so nothing needs joining
+  anywhere else. Without a common ground, the PWM signals have no
+  reference and the legs will twitch or ignore you.
 - Powering the C3 itself: on the bench, its USB-C cable is fine. For
   battery running, feed the C3's **5V** pin from the same BEC output
   (after the buck converter, never raw battery).
