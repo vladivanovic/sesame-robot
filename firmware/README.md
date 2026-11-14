@@ -23,6 +23,27 @@ This document provides technical information on the firmware architecture, contr
 - [Asset Pipeline &amp; Face Customization](#asset-pipeline--face-customization)
 - [Hardware Abstraction Layer](#hardware-abstraction-layer-hal)
 
+## This fork: XIAO ESP32-C3 + PCA9685
+
+This fork targets a **Seeed XIAO ESP32-C3** driving a **PCA9685** I2C PWM
+board instead of the upstream boards' direct-ESP32 PWM. Differences from
+upstream:
+
+- **Board**: select **XIAO_ESP32C3** in Arduino IDE (ESP32 core 3.x), and
+  set **USB CDC On Boot: Enabled** so the Serial Monitor works.
+- **Libraries**: `Adafruit PWM Servo Driver Library` replaces ESP32Servo.
+  (`Adafruit SSD1306` and `Adafruit GFX Library` are unchanged.)
+- **I2C**: SDA = D4/GPIO6, SCL = D5/GPIO7, shared by the PCA9685 (0x40)
+  and the OLED (0x3C).
+- **Servo wiring/mapping**: PCA9685 channels 0=L1, 1=L3, 2=L2, 3=L4,
+  4=R1, 5=R3, 6=R2, 7=R4. Full wiring, power rules and bench order:
+  [docs/wiring-guide/xiao-esp32c3-pca9685](../docs/wiring-guide/xiao-esp32c3-pca9685/README.md).
+- The pulse mapping is unchanged (0-180 deg -> 732-2929 us), and all
+  movement/pose code is untouched: one table in the main sketch
+  (`servoChannels`) translates logical motors to PCA9685 channels.
+- The motor tester sketch is adapted the same way and accepts PCA
+  channel numbers or joint names (e.g. `L1,90`).
+
 ## How to Flash the Firmware
 
 > [!NOTE]
@@ -39,7 +60,7 @@ This document provides technical information on the firmware architecture, contr
    - Search for "ESP32" and install "ESP32 by Espressif Systems" (v2.0.0 or higher)
 3. **Required Libraries** (install via Library Manager):
 
-- `ESP32Servo` **v3.0.9** (recommended)
+- `Adafruit PWM Servo Driver Library` (this fork; upstream uses ESP32Servo v3.0.9 with direct PWM)
 - `Adafruit SSD1306`
 - `Adafruit GFX Library`
 

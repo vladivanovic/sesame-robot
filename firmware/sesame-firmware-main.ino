@@ -3,7 +3,7 @@
 #include <DNSServer.h>
 #include <ESPmDNS.h>
 #include <Wire.h>
-#include <ESP32Servo.h>
+#include <Adafruit_PWMServoDriver.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include "face-bitmaps.h"
@@ -35,9 +35,12 @@
 //#define I2C_SDA 21
 //#define I2C_SCL 22
 
-// I2C Pins for S2 Mini Board
-#define I2C_SDA 33
-#define I2C_SCL 35
+// I2C Pins for Seeed XIAO ESP32-C3 (this fork's board)
+// D4 = GPIO6 (SDA), D5 = GPIO7 (SCL). The PCA9685 (0x40) and the
+// SSD1306 OLED (0x3C) share this one bus.
+// (S2 Mini was SDA 33 / SCL 35; Distro V2/V3 was 8/9; V1 was 21/22.)
+#define I2C_SDA 6
+#define I2C_SCL 7
 
 
 // DNS Server for Captive Portal
@@ -91,25 +94,32 @@ bool wifiRestoreApOnly = false;      // drop the station iface again after an AP
 const uint32_t WIFI_CONNECT_TIMEOUT_MS = 15000;
 const uint32_t WIFI_SETUP_START_DELAY_MS = 300;  // let the HTTP response flush before the AP channel may hop
 
-// Servo Pins for Distro Board
+// Servo output: PCA9685 PWM driver on I2C (this fork's build)
 // ======================================================================
-// Pin numbers are coorisponding to the ESP32 GPIO pins and may differ based on which board you use.
-// If you are using a different board, please adjust the servoPins array accordingly.
+// The XIAO ESP32-C3 does NOT drive the servos directly. It talks I2C to
+// a PCA9685, and the PCA9685 generates all 16 PWM channels in hardware.
+// Servo power comes from a separate 5 V supply on the PCA9685's V+
+// terminal -- never from the C3. See
+// docs/wiring-guide/xiao-esp32c3-pca9685/README.md
 // ======================================================================
-Servo servos[8];
-// Sesame Distro Board V3 Pinout [NEW]
-//const int servoPins[8] = {4, 5, 6, 7, 10, 11, 12, 13};
+#define PCA9685_I2C_ADDR 0x40
+#define SERVO_FREQ 50        // hobby servos: 50 Hz
+#define SERVO_MIN_US 732     // pulse for 0 deg (same mapping as upstream)
+#define SERVO_MAX_US 2929    // pulse for 180 deg (same mapping as upstream)
 
-// Sesame Distro Board V2 Pinout (Legacy)
-//const int servoPins[8] = {4, 5, 6, 7, 15, 16, 17, 18};
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(PCA9685_I2C_ADDR, Wire);
 
-// Sesame Distro Board V1 Pinout (Legacy)
-//const int servoPins[8] = {15, 2, 23, 19, 4, 16, 17, 18};
+// PCA9685 channel for each logical motor.
+// Logical motor order (movement-sequences.h ServoName enum, unchanged
+// from upstream): index 0=R1, 1=R2, 2=L1, 3=L2, 4=R4, 5=R3, 6=L3, 7=L4
+// Wiring order on the PCA9685 (Vlad's build, confirmed 2026-11-14):
+//   Left  side: ch 0=L1, ch 1=L3, ch 2=L2, ch 3=L4
+//   Right side: ch 4=R1, ch 5=R3, ch 6=R2, ch 7=R4
+// i.e. per side the plug order is 1, 3, 2, 4.
+//                        R1  R2  L1  L2  R4  R3  L3  L4
+const uint8_t servoChannels[8] = {4,  6,  0,  2,  7,  5,  1,  3};
 
-// Lolin S2 Mini Pinout
-const int servoPins[8] = {1, 2, 4, 6, 8, 10, 13, 14};
-
-// Subtrim values for each servo (offset in degrees)
+// Subtrim values for each servo (offset in degrees, by logical motor)
 int8_t servoSubtrim[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 
 
@@ -730,17 +740,11 @@ void setup() {
   
   server.begin();
 
-  // PWM Init
-  ESP32PWM::allocateTimer(0);
-  ESP32PWM::allocateTimer(1);
-  ESP32PWM::allocateTimer(2);
-  ESP32PWM::allocateTimer(3);
+  // PCA9685 PWM Init (Wire was already begun above for the OLED)
+  pwm.begin();
+  pwm.setOscillatorFrequency(27000000);
+  pwm.setPWMFreq(SERVO_FREQ);
   
-  for (int i = 0; i < 8; i++) {
-    servos[i].setPeriodHertz(50);
-    // Map 0-180 to approx 732-2929us
-    servos[i].attach(servoPins[i], 732, 2929);
-  }
   delay(10);
   
   // Show rest face on startup without moving motors
@@ -1051,7 +1055,9 @@ void updateIdleBlink() {
 void setServoAngle(uint8_t channel, int angle) { 
   if (channel < 8) {
     int adjustedAngle = constrain(angle + servoSubtrim[channel], 0, 180);
-    servos[channel].write(adjustedAngle);
+    // Map 0-180 deg to the same pulse range upstream used (732-2929 us)
+    int pulseUs = map(adjustedAngle, 0, 180, SERVO_MIN_US, SERVO_MAX_US);
+    pwm.writeMicroseconds(servoChannels[channel], pulseUs);
     delayWithFace(motorCurrentDelay);
   }
 }
